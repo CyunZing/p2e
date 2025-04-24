@@ -1,0 +1,445 @@
+<template>
+	<view class="container">
+
+
+
+		<!-- 使用原生video组件播放RTSP流 -->
+		<view v-if="showPlayer" class="video-container">
+			<!-- #ifdef APP-PLUS -->
+			<video id="videoPlayer" class="video-player" :src="rtspUrl" :autoplay="showPlayer"
+				:page-gesture="showPlayer" :show-fullscreen-btn="showPlayer" :controls="showPlayer"
+				:show-play-btn="false" :enable-progress-gesture="false" :is-live="showPlayer" codec="software"
+				@error="handleVideoError" @statechange="handleStateChange"></video>
+			<!-- #endif -->
+
+
+			<!-- <view class="status-info">
+				<text>{{playerStatus}}</text>
+			</view> -->
+		</view>
+		
+		<!-- RTSP流地址输入框 -->
+		<view class="input-container">
+			<input class="rtsp-input" v-model="rtspUrl" placeholder="输入RTSP流地址" />
+		</view>
+
+		<view class="action-bar">
+			<button class="btn" @click="togglePlayer">
+				{{ showPlayer ? '关闭播放器' : '播放实时视频' }}
+			</button>
+		</view>
+	</view>
+</template>
+
+<script>
+	export default {
+		data() {
+			return {
+				sdpConfig: '',
+				deviceIP: '', // 存储设备IP地址
+				cameraIP: '', // 存储相机IP地址
+				cameraPort: '',
+				showPlayer: false, // 控制播放器显示
+				rtspUrl: 'rtsp://192.168.1.188:8554/mystream', // RTSP流URL
+				playerStatus: '准备播放...',
+				videoContext: null
+			};
+		},
+		onLoad() {
+			// 获取相机数据
+			const app = getApp();
+			const cameraData = app.globalData.cameraData;
+			this.cameraIP = cameraData.ip;
+			this.cameraPort = cameraData.port;
+
+			// 获取设备内网IP地址
+			// this.getWifiIp();
+
+			// 页面加载时自动获取当前SDP配置
+			// this.getSDPProfile();
+		},
+		methods: {
+			getWifiIp() {
+				// #ifdef APP-PLUS
+				try {
+					// Android 平台
+					let MainActivity = plus.android.runtimeMainActivity()
+					// Context
+					let Context = plus.android.importClass('android.content.Context')
+					// WiFi 相关包  
+					plus.android.importClass("android.net.wifi.WifiManager")
+					plus.android.importClass("android.net.wifi.WifiInfo")
+					plus.android.importClass("android.net.wifi.ScanResult")
+					plus.android.importClass("java.util.ArrayList")
+					// WiFi 管理实例
+					let wifiManager = MainActivity.getSystemService(Context.WIFI_SERVICE)
+					// 开启 WiFi
+					// wifiManager.setWifiEnabled(true)
+					// 当前连接 WiFi 信息  
+					let wifiInfo = wifiManager.getConnectionInfo()
+					let ipAddress = wifiInfo.getIpAddress()
+
+					// 将整数转换为点分十进制格式的IP地址
+					if (ipAddress > 0) {
+						this.deviceIP = ((ipAddress & 0xff) + "." + (ipAddress >> 8 & 0xff) + "." + (ipAddress >> 16 &
+							0xff) + "." + (ipAddress >> 24 & 0xff))
+
+					} else {
+						uni.showToast({
+							title: 'IP获取失败',
+							icon: 'error'
+						});
+					}
+
+				} catch (e) {
+					console.error('获取WiFi IP出错:', e);
+				}
+				// #endif
+			},
+			async saveConfig() {
+				// 从全局获取相机数据
+				const app = getApp();
+				const cameraData = app.globalData.cameraData;
+				const cameraIP = cameraData.ip;
+				const cameraPort = cameraData.port;
+
+				uni.showLoading({
+					title: '保存中...'
+				});
+
+				uni.request({
+					url: `http://${cameraIP}:${cameraPort}/ccapi/ver100/shooting/liveview/rtpsessiondesc`,
+					method: 'PUT',
+					header: {
+						'Content-Type': 'application/json'
+					},
+					data: {
+						data: this.sdpConfig
+					},
+					success: (res) => {
+						uni.hideLoading();
+						if (res.statusCode === 200) {
+							uni.showToast({
+								title: '配置保存成功',
+								icon: 'success'
+							});
+						} else {
+							uni.showToast({
+								title: `保存失败: ${res.statusCode}`,
+								icon: 'none'
+							});
+						}
+					},
+					fail: (err) => {
+						uni.hideLoading();
+						console.error('保存失败:', err);
+						uni.showToast({
+							title: '保存失败: ' + (err.errMsg || '未知错误'),
+							icon: 'none',
+							duration: 2000
+						});
+					}
+				});
+			},
+			getSDPProfile() {
+				// 从全局获取相机数据
+				uni.showLoading({
+					title: '获取配置中...'
+				});
+
+				uni.request({
+					url: `http://${this.cameraIP}:${this.cameraPort}/ccapi/ver100/shooting/liveview/rtpsessiondesc`,
+					method: 'GET',
+					success: (res) => {
+						uni.hideLoading();
+						if (res.statusCode === 200) {
+							let sdpData = '';
+
+							// 处理返回的SDP文本
+							if (res.data) {
+								// 如果返回的数据是对象且有data字段
+								if (typeof res.data === 'object' && res.data.data) {
+									sdpData = res.data.data;
+								}
+								// 如果返回的是字符串（直接是SDP文本）
+								else if (typeof res.data === 'string') {
+									sdpData = res.data;
+								}
+								// 自动识别SDP协议文本特征
+								else if (JSON.stringify(res.data).includes('v=0') &&
+									JSON.stringify(res.data).includes('o=-')) {
+									sdpData = JSON.stringify(res.data);
+								}
+
+								// 修改SDP中的IP地址
+								if (sdpData && this.deviceIP) {
+									// 修改创建者的IP地址为终端IP
+									sdpData = sdpData.replace(
+										/o=- 0 0 IN IP4 (\d+\.\d+\.\d+\.\d+)/,
+										`o=- 0 0 IN IP4 ${this.deviceIP}`
+									);
+
+									// 修改连接地址为相机IP
+									sdpData = sdpData.replace(
+										/c=IN IP4 (\d+\.\d+\.\d+\.\d+|0\.0\.0\.0)/,
+										`c=IN IP4 ${this.cameraIP}`
+									);
+								}
+
+								// 更新配置
+								this.sdpConfig = sdpData;
+							}
+
+							uni.showToast({
+								title: '获取配置成功',
+								icon: 'success'
+							});
+						} else {
+							uni.showToast({
+								title: `获取配置失败: ${res.statusCode}`,
+								icon: 'none'
+							});
+						}
+					},
+					fail: (err) => {
+						uni.hideLoading();
+						console.error('连接失败:', err);
+						uni.showToast({
+							title: '连接失败: ' + (err.errMsg || '未知错误'),
+							icon: 'none',
+							duration: 2000
+						});
+					}
+				});
+			},
+			// 控制播放器的显示/隐藏
+			togglePlayer() {
+				// 检查RTSP URL是否有效
+				if (!this.showPlayer && !this.rtspUrl.startsWith('rtsp://')) {
+					uni.showToast({
+						title: '请输入有效的RTSP地址',
+						icon: 'none',
+						duration: 2000
+					});
+					return;
+				}
+
+				this.showPlayer = !this.showPlayer;
+
+				if (this.showPlayer) {
+					// 显示播放状态
+					this.playerStatus = '正在连接流媒体...';
+
+					// 初始化视频上下文
+					this.$nextTick(() => {
+						// #ifdef APP-PLUS
+						this.videoContext = uni.createVideoContext('videoPlayer', this);
+						// #endif
+					});
+				} else {
+					// 停止播放
+					if (this.videoContext) {
+						this.videoContext.stop();
+					}
+				}
+			},
+			// 处理视频错误
+			handleVideoError(e) {
+				console.error('视频播放错误:', e);
+				this.playerStatus = '播放出错: ' + (e.detail?.errMsg || '未知错误');
+
+				uni.showToast({
+					title: '视频播放出错，请检查网络连接',
+					icon: 'none',
+					duration: 2000
+				});
+			},
+			// 处理视频状态变化
+			handleStateChange(e) {
+				console.log('视频状态变化:', e.detail.code);
+
+				const stateCode = e.detail.code;
+
+				switch (stateCode) {
+					case 0:
+						this.playerStatus = '未加载';
+						break;
+					case 1:
+						this.playerStatus = '加载中...';
+						break;
+					case 2:
+						this.playerStatus = '播放中';
+						break;
+					case 3:
+						this.playerStatus = '暂停播放';
+						break;
+					case 4:
+						this.playerStatus = '播放结束';
+						break;
+					default:
+						this.playerStatus = '未知状态: ' + stateCode;
+				}
+			},
+			// H5环境复制RTSP链接
+			copyRtspUrl() {
+				// #ifdef H5
+				const input = document.createElement('input');
+				input.setAttribute('readonly', 'readonly');
+				input.setAttribute('value', this.rtspUrl);
+				document.body.appendChild(input);
+				input.select();
+				if (document.execCommand('copy')) {
+					document.execCommand('copy');
+					uni.showToast({
+						title: 'RTSP链接已复制到剪贴板',
+						icon: 'success'
+					});
+				}
+				document.body.removeChild(input);
+				// #endif
+			}
+		}
+	};
+</script>
+
+<style scoped>
+	.container {
+		flex: 1;
+		background-color: #000;
+		/* padding: 30rpx; */
+		/* #ifdef APP-PLUS-NVUE */
+		align-items: center;
+		/* 在NVUE中居中显示内容 */
+		/* #endif */
+	}
+
+	.input-container {
+		margin-top: 30rpx;
+		padding: 0 30rpx;
+		/* #ifdef APP-PLUS-NVUE */
+		width: 690rpx;
+		/* #endif */
+		/* #ifdef H5 */
+		width: 100%;
+		/* #endif */
+	}
+
+	.rtsp-input {
+		background-color: rgba(255, 255, 255, 0.1);
+		color: #FFFFFF;
+		height: 80rpx;
+		padding: 0 20rpx;
+		border-radius: 8rpx;
+		font-size: 28rpx;
+	}
+
+	.action-bar {
+		flex-direction: row;
+		justify-content: center;
+		margin-top: 20rpx;
+		/* #ifdef APP-PLUS-NVUE */
+		width: 690rpx;
+		/* #endif */
+	}
+
+	.btn {
+		margin-top: 20rpx;
+		/* #ifdef APP-PLUS-NVUE */
+		width: 690rpx;
+		/* 单个按钮宽度可以更大 */
+		height: 90rpx;
+		border-radius: 45rpx;
+		justify-content: center;
+		align-items: center;
+		/* #endif */
+
+		/* #ifdef H5 */
+		padding: 20rpx 40rpx;
+		border-radius: 45rpx;
+		/* #endif */
+
+		/* background: linear-gradient(to right, #49C061, #36AD4E); */
+		/* 播放按钮使用绿色 */
+		color: white;
+	}
+
+	.video-container {
+		margin-top: 20rpx;
+		/* #ifdef APP-PLUS-NVUE */
+		width: 750rpx;
+		/* #endif */
+		/* #ifdef H5 */
+		width: 100%;
+		/* #endif */
+		border-radius: 12rpx;
+		background-color: #000;
+		overflow: hidden;
+		/* #ifdef APP-PLUS-NVUE */
+		flex-direction: column;
+		align-items: center;
+		/* #endif */
+	}
+
+	.video-player {
+		/* #ifdef APP-PLUS-NVUE */
+		width: 750rpx !important;
+		flex: 1;
+		/* #endif */
+		/* #ifdef H5 */
+		width: 100%;
+		/* #endif */
+		height: 360rpx;
+		border-radius: 8rpx;
+	}
+
+	.status-info {
+		/* margin-top: 10rpx; */
+		padding: 5rpx;
+		background-color: rgba(0, 0, 0, 0.5);
+		border-radius: 4rpx;
+		/* #ifdef APP-PLUS-NVUE */
+		width: 690rpx;
+		align-items: center;
+		/* #endif */
+	}
+
+	.status-info text {
+		color: #fff;
+		font-size: 24rpx;
+		text-align: center;
+	}
+
+	.h5-info {
+		padding: 20rpx;
+		background-color: rgba(0, 0, 0, 0.5);
+		border-radius: 8rpx;
+		align-items: center;
+	}
+
+	.h5-tip {
+		color: #fff;
+		font-size: 28rpx;
+		margin-bottom: 20rpx;
+		text-align: center;
+	}
+
+	.rtsp-url {
+		color: #4B9CFA;
+		background-color: rgba(255, 255, 255, 0.1);
+		padding: 10rpx;
+		border-radius: 4rpx;
+		font-size: 24rpx;
+		margin-bottom: 20rpx;
+		width: 100%;
+		text-align: center;
+	}
+
+	.copy-btn {
+		background-color: #4B9CFA;
+		color: #fff;
+		font-size: 24rpx;
+		padding: 10rpx 30rpx;
+		border-radius: 30rpx;
+		border: none;
+	}
+</style>

@@ -1,0 +1,83 @@
+<template>
+  <view class="container">
+    <video 
+      :src="videoUrl"
+      controls
+      autoplay
+      class="video-player"
+      v-if="isConnected"
+    ></video>
+    
+    <view class="control-panel">
+      <button class="btn" @click="toggleStream">
+        {{ isPlaying ? '停止' : '开始' }}
+      </button>
+      <button class="btn" @click="captureFrame">
+        截图
+      </button>
+    </view>
+  </view>
+</template>
+
+<script>
+import shared from '@/common/shared.js';
+
+export default {
+  data() {
+    return {
+      isConnected: false,
+      isPlaying: false,
+      videoUrl: ''
+    };
+  },
+  onLoad() {
+    this.initStream();
+  },
+  methods: {
+    async initStream() {
+      const { ip, port } = shared.getCameraData();
+      this.videoUrl = `rtsp://${ip}:${port}/liveview`;
+      
+      try {
+        await this.$http.get('/ccapi/ver100/shooting/liveview');
+        this.isConnected = true;
+      } catch (e) {
+        uni.showToast({ title: '视频流不可用', icon: 'none' });
+        uni.navigateBack();
+      }
+    },
+    toggleStream() {
+      this.isPlaying = !this.isPlaying;
+    },
+    captureFrame() {
+      // 截图逻辑
+    }
+  }
+};
+</script>
+
+<style scoped>
+.container {
+  flex: 1;
+  background-color: #000;
+}
+
+.video-player {
+  width: 100%;
+  height: 60vh;
+}
+
+.control-panel {
+  flex-direction: row;
+  justify-content: center;
+  padding: 40rpx;
+  gap: 30rpx;
+}
+
+.btn {
+  background: #4B9CFA;
+  color: white;
+  padding: 20rpx 40rpx;
+  border-radius: 8rpx;
+}
+</style> 

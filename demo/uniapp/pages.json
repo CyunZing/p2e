@@ -1,0 +1,61 @@
+{
+	"pages": [ //pages数组中第一项表示应用启动页，参考：https://uniapp.dcloud.io/collocation/pages
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "相机设置"
+			}
+		},
+		{
+			"path": "pages/api_list/api_list",
+			"style": {
+				"navigationBarTitleText": "相机功能"
+			}
+		},
+		{
+			"path": "pages/liveview/index",
+			"style": {
+				"navigationBarTitleText": "实时视频",
+				"app-plus": {
+					"titleNView": {
+						"buttons": [{
+							"text": "关闭",
+							"fontSize": "16px",
+							"position": "right"
+						}]
+					}
+				}
+			}
+		},
+		{
+			"path": "pages/liveview/flip",
+			"style": {
+				"navigationBarTitleText": "实时快照",
+				"enablePullDownRefresh": true
+			}
+		},
+		{
+			"path": "pages/liveview/sdp",
+			"style": {
+				"navigationBarTitleText": "实时画面"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "uni-app",
+		"navigationBarBackgroundColor": "#F8F8F8",
+		"backgroundColor": "#F8F8F8"
+	},
+	"uniIdRouter": {},
+	"condition" : { //模式配置，仅开发期间生效
+		"current": 0, //当前激活的模式(list 的索引项)
+		"list": [
+			{
+				"name": "", //模式名称
+				"path": "", //启动页面，必选
+				"query": "" //启动参数，在页面的onLoad函数里面得到
+			}
+		]
+	}
+}

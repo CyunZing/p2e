@@ -1,0 +1,351 @@
+<template>
+	<view class="container">
+		<!-- IP地址输入 -->
+		<view class="input-group">
+			<text class="label">相机IP地址:</text>
+			<input class="input" v-model="cameraIP" placeholder="请输入相机IP地址" type="text" />
+		</view>
+
+		<!-- 端口输入（默认8080） -->
+		<view class="input-group">
+			<text class="label">端口号:</text>
+			<input class="input" v-model="cameraPort" placeholder="请输入端口号" type="number" :value="8080" />
+		</view>
+
+		<!-- 连接按钮 -->
+		<button class="connect-btn eos-style" @tap="connectCamera" :class="{
+				'btn-active': isConnecting,
+				'btn-disabled': isConnecting
+			}" :disabled="isConnecting">
+			<text class="btn-text">{{ isConnecting ? '设置中...' : '设置相机' }}</text>
+		</button>
+
+		<!-- 连接成功后的接口列表 -->
+		<view class="api-list" v-if="cameraApis.length">
+			<text class="section-title">支持的接口:</text>
+			<view class="api-item" v-for="(api, index) in cameraApis" :key="index">
+				<text class="api-url">{{ api.url.replace('http://'+cameraIP+':'+cameraPort, '') }}</text>
+				<view class="method-tags">
+					<text v-if="api.get" class="method get">GET</text>
+					<text v-if="api.post" class="method post">POST</text>
+					<text v-if="api.put" class="method put">PUT</text>
+					<text v-if="api.delete" class="method delete">DELETE</text>
+				</view>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script>
+	import shared from '@/common/shared.js';
+
+	export default {
+		data() {
+			return {
+				cameraIP: '192.168.1.4', // 存储输入的IP地址
+				cameraPort: '8080', // 默认端口设置为8080
+				cameraApis: [], // 新增：存储接口列表
+				isConnecting: false // 新增：连接状态
+			};
+		},
+		methods: {
+			connectCamera() {
+				if (this.isConnecting) return;
+
+				// 先关闭可能存在的加载框
+				uni.hideLoading();
+
+				this.isConnecting = true;
+				uni.showLoading({
+					title: '正在连接相机...',
+					mask: true
+				});
+
+				if (!this.cameraIP) {
+					uni.showToast({
+						title: '请输入IP地址',
+						icon: 'none'
+					});
+					this.isConnecting = false;
+					// 确保加载框关闭
+					setTimeout(() => {
+						uni.hideLoading();
+					}, 100);
+					return;
+				}
+
+				// 新增CCAPI接口请求
+				uni.request({
+					url: `http://${this.cameraIP}:${this.cameraPort}/ccapi`,
+					method: 'GET',
+					timeout: 30000,
+					success: (res) => {
+						// 确保加载框关闭
+						setTimeout(() => {
+							uni.hideLoading();
+						}, 100);
+
+						if (res.statusCode === 200) {
+							// 新增接口解析逻辑
+							if (res.data.ver100) {
+								this.cameraApis = res.data.ver100;
+								console.log('接口详情:', this.cameraApis);
+								
+								// 保存到globalData中
+								const app = getApp();
+								if (!app.globalData) {
+									app.globalData = {};
+								}
+								app.globalData.cameraData = {
+									ip: this.cameraIP,
+									port: this.cameraPort,
+									apis: res.data.ver100
+								};
+								console.log('已保存到全局数据', app.globalData.cameraData);
+								
+								// 同时保存到shared模块(兼容原来的代码)
+								shared.setCameraData(this.cameraIP, this.cameraPort, res.data.ver100);
+								
+								uni.showToast({
+									title: '连接成功',
+									icon: 'success'
+								});
+
+								uni.reLaunch({
+									url: '/pages/api_list/api_list'
+								});
+							} else {
+								uni.showToast({
+									title: '无效的接口格式',
+									icon: 'none'
+								});
+							}
+						} else {
+							uni.showToast({
+								title: `连接失败: ${res.statusCode}`,
+								icon: 'none'
+							});
+						}
+					},
+					fail: (err) => {
+						// 确保加载框关闭
+						setTimeout(() => {
+							uni.hideLoading();
+						}, 100);
+
+						let errMsg = '连接异常';
+						if (err.errMsg.includes('timeout')) {
+							errMsg = '请求超时请检查网络';
+						} else {
+							errMsg = '连接异常: ' + err.errMsg;
+						}
+						uni.showToast({
+							title: errMsg,
+							icon: 'none'
+						});
+					},
+					complete: () => {
+						this.isConnecting = false;
+						// 确保加载框关闭
+						setTimeout(() => {
+							uni.hideLoading();
+						}, 100);
+					}
+				});
+			}
+		}
+	};
+</script>
+
+<style scoped>
+	.container {
+		padding: 40rpx;
+		background-color: #f5f5f5;
+		/* #ifdef APP-PLUS-NVUE */
+		flex: 1;
+		/* #endif */
+		/* #ifdef H5 */
+		min-height: 100vh;
+		/* #endif */
+	}
+
+	.input-group {
+		margin-bottom: 40rpx;
+		background-color: #fff;
+		border-radius: 12rpx;
+		padding: 20rpx;
+		box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.1);
+	}
+
+	.label {
+		font-size: 28rpx;
+		color: #666;
+		/* #ifdef APP-PLUS-NVUE */
+		flex-direction: column;
+		/* #endif */
+		/* #ifdef H5 */
+		display: block;
+		/* #endif */
+		margin-bottom: 20rpx;
+	}
+
+	.input {
+		height: 80rpx;
+		padding: 0 20rpx;
+		font-size: 32rpx;
+		border: 2rpx solid #eee;
+		border-radius: 8rpx;
+		background-color: #fff;
+	}
+
+	.connect-btn {
+		/* 基础样式 */
+		/* #ifdef APP-PLUS-NVUE */
+		height: 96rpx;
+		justify-content: center;
+		align-items: center;
+		/* #endif */
+	}
+
+	.connect-btn.eos-style {
+		/* 简洁科技红风格 */
+		/* background: linear-gradient(135deg, #FF4444 0%, #CC0000 100%);*/
+		background: linear-gradient(to right, #FF4444 , #CC0000);
+		border: 1rpx solid #FF6666;
+		border-radius: 12rpx;
+		box-shadow: 0 4rpx 12rpx rgba(255, 0, 0, 0.2);
+		/* #ifdef H5 */
+		transition: all 0.2s ease;
+		/* #endif */
+		/* #ifdef APP-PLUS-NVUE */
+		padding: 0 30rpx;
+		/* #endif */
+	}
+
+	/* #ifdef H5 */
+	/* 悬停效果 */
+	.connect-btn.eos-style:not([disabled]):hover {
+		background: linear-gradient(to right, #FF5555, #DD0000);
+		box-shadow: 0 6rpx 16rpx rgba(255, 0, 0, 0.3);
+	}
+
+	/* #endif */
+
+	/* 为安卓创建独立的活动状态样式 */
+	.connect-btn.eos-style.btn-active {
+		background: linear-gradient(to right, #EE0000, #BB0000);
+		box-shadow: 0 2rpx 6rpx rgba(255, 0, 0, 0.2);
+	}
+
+	/* #ifdef H5 */
+	/* 点击效果 */
+	.connect-btn.eos-style:active {
+		background: linear-gradient(to right, #EE0000, #BB0000);
+		box-shadow: 0 2rpx 6rpx rgba(255, 0, 0, 0.2);
+	}
+
+	/* #endif */
+
+	/* 文字样式 */
+	.btn-text {
+		color: #FFFFFF;
+		font-size: 34rpx;
+		font-weight: 500;
+		/* #ifdef H5 */
+		text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.2);
+		/* #endif */
+	}
+
+	/* 创建一个独立的禁用样式类 */
+	.connect-btn.eos-style.btn-disabled {
+		background: linear-gradient(to right, #AA0000, #880000);
+		opacity: 0.9;
+		box-shadow: 0 2rpx 6rpx rgba(170, 0, 0, 0.2);
+	}
+
+	/* #ifdef H5 */
+	/* 禁用状态 */
+	.connect-btn.eos-style[disabled] {
+		background: linear-gradient(to right, #AA0000, #880000);
+		opacity: 0.9;
+		box-shadow: 0 2rpx 6rpx rgba(170, 0, 0, 0.2);
+	}
+
+	/* #endif */
+
+	/* 新增样式 */
+	.api-list {
+		margin-top: 40rpx;
+		background: #fff;
+		border-radius: 12rpx;
+		padding: 20rpx;
+	}
+
+	.section-title {
+		/* #ifdef APP-PLUS-NVUE */
+		flex-direction: column;
+		/* #endif */
+		/* #ifdef H5 */
+		display: block;
+		/* #endif */
+		font-size: 28rpx;
+		color: #333;
+		margin-bottom: 20rpx;
+		font-weight: bold;
+	}
+
+	.api-item {
+		padding: 20rpx;
+		margin-bottom: 20rpx;
+		background: #f8f8f8;
+		border-radius: 8rpx;
+	}
+
+	.api-url {
+		font-size: 24rpx;
+		color: #666;
+		/* #ifdef APP-PLUS-NVUE */
+		flex-direction: column;
+		/* #endif */
+		/* #ifdef H5 */
+		display: block;
+		/* #endif */
+		margin-bottom: 10rpx;
+	}
+
+	.method-tags {
+		display: flex;
+		/* #ifdef H5 */
+		gap: 10rpx;
+		/* #endif */
+	}
+
+	.method {
+		font-size: 22rpx;
+		padding: 4rpx 12rpx;
+		border-radius: 6rpx;
+		/* #ifdef APP-PLUS-NVUE */
+		margin-right: 10rpx;
+		/* #endif */
+	}
+
+	.get {
+		background: #e6f4ea;
+		color: #389e0d;
+	}
+
+	.post {
+		background: #e6f3ff;
+		color: #096dd9;
+	}
+
+	.put {
+		background: #fff7e6;
+		color: #d48806;
+	}
+
+	.delete {
+		background: #fff1f0;
+		color: #cf1322;
+	}
+</style>

@@ -1,0 +1,364 @@
+<template>
+	<view class="container">
+		<view class="header">
+			<text class="title">相机接口列表</text>
+			<text class="subtitle">IP: {{cameraIP}}:{{cameraPort}}</text>
+		</view>
+
+		<!-- <scroll-view class="api-scroll" scroll-y> -->
+		<view class="api-container">
+			<!-- 第一个卡片(实时画面)单独渲染，占满整行 -->
+			<view v-if="filteredApis.length > 0" class="api-item">
+				<view class="api-card" :style="getCardStyle(0)" @click="handleApiClick(filteredApis[0])">
+					<text class="api-name">
+						{{ filteredApis[0].name }}
+						<text v-if="filteredApis[0].url === LIVEVIEW_API" class="status-indicator">
+							{{ liveviewStatus ? '运行中' : '已关闭' }}
+						</text>
+					</text>
+				</view>
+			</view>
+			
+			
+			<view v-if="filteredApis.length > 2" class="api-item">
+				<view class="api-card" :style="getCardStyle(1)" @click="handleApiClick(filteredApis[1])">
+					<text class="api-name">
+						{{ filteredApis[1].name }}
+					</text>
+				</view>
+				<view class="api-card" :style="getCardStyle(2)" @click="handleApiClick(filteredApis[2])">
+					<text class="api-name">
+						{{ filteredApis[2].name }}
+					</text>
+				</view>
+			</view>
+			
+			<!-- 其余卡片每行两个 -->
+			<!-- <view v-for="(api, index) in filteredApis.slice(1)" :key="index+1" class="api-item">
+				<view class="api-card" :style="getCardStyle(index+1)" @click="handleApiClick(api)">
+					<text class="api-name">
+						{{ api.name }}
+						<text v-if="api.url === LIVEVIEW_API" class="status-indicator">
+							{{ liveviewStatus ? '运行中' : '已关闭' }}
+						</text>
+					</text>
+				</view>
+			</view> -->
+		</view>
+		<!-- </scroll-view> -->
+	</view>
+</template>
+
+<script>
+	import shared from '@/common/shared.js';
+
+	const SPECIAL_APIS = {
+		'/ccapi/ver100/shooting/liveview': {
+			name: '开启实时画面',
+			path: '/pages/liveview/index'
+		},
+		'/ccapi/ver100/shooting/liveview/flip': {
+			name: '实时快照',
+			path: '/pages/liveview/flip'
+		},
+		'/ccapi/ver100/shooting/liveview/rtpsessiondesc': {
+			name: '实时画面',
+			path: '/pages/liveview/sdp'
+		}
+	};
+
+	const LIVEVIEW_API = '/ccapi/ver100/shooting/liveview';
+
+	export default {
+		data() {
+			return {
+				cameraIP: '',
+				cameraPort: '',
+				apiList: [],
+				httpMethods: ['get', 'post', 'put', 'delete'],
+				filteredApis: [],
+				liveviewStatus: false
+			};
+		},
+		filters: {
+			shortPath(url) {
+				return url.replace(/^https?:\/\/[^/]+/, '');
+			}
+		},
+		onLoad() {
+			// 从globalData获取相机数据
+			const app = getApp();
+			let data = {
+				apis: null,
+				ip: '',
+				port: ''
+			};
+
+			// 优先从globalData获取数据
+			if (app.globalData && app.globalData.cameraData) {
+				data = app.globalData.cameraData;
+			} else {
+				// 备用方案：从shared模块获取
+				const sharedData = shared.getCameraData();
+				if (sharedData && sharedData.apis) {
+					data = sharedData;
+				}
+			}
+
+			if (!data.apis) {
+				uni.showToast({
+					title: '数据已过期，正在返回首页',
+					icon: 'none',
+					duration: 1500
+				});
+				// 清空页面栈并返回首页
+				setTimeout(() => {
+					uni.reLaunch({
+						url: '/pages/index/index'
+					});
+				}, 1500);
+				return;
+			}
+
+			this.cameraIP = data.ip;
+			this.cameraPort = data.port;
+			this.apiList = data.apis;
+			this.filteredApis = data.apis
+				.filter(api =>
+					Object.keys(SPECIAL_APIS).some(path =>
+						api.url.endsWith(path)
+					)
+				)
+				.map(api => ({
+					...api,
+					name: SPECIAL_APIS[
+						Object.keys(SPECIAL_APIS).find(path =>
+							api.url.endsWith(path)
+						)
+					].name
+				}));
+		},
+		onUnload() {
+			// 不再需要清理shared数据
+			// shared.clearCameraData(); 
+
+			// 如果需要，可以在这里添加其他清理逻辑
+		},
+		methods: {
+			getCardStyle(index) {
+				// 使用to right格式的渐变，与首页保持一致
+				const colors = {
+					active: ['#4B9CFA', '#58C8FC'],
+					inactive: ['#FF6B6B', '#FF8E8E']
+				};
+
+				const isLiveviewCard = this.filteredApis[index]?.url.includes(LIVEVIEW_API);
+				const statusColors = isLiveviewCard && this.liveviewStatus ? colors.active : colors.inactive;
+
+				return {
+					backgroundImage: `linear-gradient(to right, ${statusColors[0]}, ${statusColors[1]})`
+				};
+			},
+			handleApiClick(api) {
+				const matchedPath = Object.keys(SPECIAL_APIS).find(path =>
+					api.url.endsWith(path)
+				);
+
+				if (!matchedPath) {
+					return uni.showToast({
+						title: '不支持的接口',
+						icon: 'none'
+					});
+				}
+
+				// 需要实时画面开启的接口列表
+				const REQUIRE_LIVEVIEW = [
+					'/ccapi/ver100/shooting/liveview/flip',
+					'/ccapi/ver100/shooting/liveview/rtpsessiondesc'
+				];
+
+				if (REQUIRE_LIVEVIEW.includes(matchedPath) && !this.liveviewStatus) {
+					return uni.showToast({
+						title: '请先开启实时画面',
+						icon: 'none',
+						duration: 2000
+					});
+				}
+
+				if (api.url.endsWith(LIVEVIEW_API)) {
+					return this.startLiveview(api);
+				}
+
+				uni.navigateTo({
+					url: SPECIAL_APIS[matchedPath].path
+				});
+			},
+			async startLiveview(api) {
+				const action = this.liveviewStatus ? '关闭' : '开启';
+				uni.showLoading({
+					title: `${action}实时画面...`
+				});
+
+				try {
+					const res = await uni.request({
+						url: api.url,
+						method: 'POST',
+						header: {
+							'Content-Type': 'application/json'
+						},
+						data: {
+							cameradisplay: 'on',
+							liveviewsize: this.liveviewStatus ? 'off' : 'small'
+						},
+						timeout: 10000
+					});
+
+					if (res.statusCode !== 200) {
+						throw new Error(`HTTP错误 ${res.statusCode}`);
+					}
+
+					this.liveviewStatus = !this.liveviewStatus; // 切换状态
+					uni.showToast({
+						title: `已${action}实时画面`,
+						icon: 'success'
+					});
+				} catch (e) {
+					const errorMsg = e.errMsg || e.message || '未知错误';
+					uni.showToast({
+						title: `开启失败: ${errorMsg}`,
+						icon: 'none',
+						duration: 3000
+					});
+				} finally {
+					uni.hideLoading();
+				}
+			}
+		}
+	};
+</script>
+
+<style scoped>
+	.container {
+		padding: 20rpx;
+		background-color: #f0f2f5;
+	}
+
+	.header {
+		padding: 30rpx;
+		background: #ffffff;
+		margin-bottom: 20rpx;
+		border-radius: 12rpx;
+	}
+
+	.title {
+		font-size: 36rpx;
+		color: #333;
+		font-weight: bold;
+		display: block;
+		margin-bottom: 10rpx;
+	}
+
+	.subtitle {
+		font-size: 28rpx;
+		color: #666;
+	}
+
+	.api-scroll {
+		padding: 44upx 26upx;
+		height: calc(100vh - 200rpx);
+	}
+
+	.api-container {
+		flex-direction: column;
+		/* flex-wrap: wrap;
+		justify-content: space-between; */
+	}
+
+	.api-item {
+		flex-direction: row;
+		/* 留出4%的间距 */
+		margin-bottom: 28upx;
+	}
+
+	/* 第一个卡片占满整行 */
+	.api-item:first-child {
+		width: 100%;
+
+	}
+
+	.api-card {
+		flex: 1;
+		height: 220upx;
+		border-radius: 32upx;
+		padding: 30upx;
+		margin: 0 14upx;
+		/* position: relative; */
+		background-image: linear-gradient(to right, #4B9CFA, #58C8FC);
+		
+	}
+
+	.api-name {
+		font-size: 34rpx;
+		color: #fff;
+		font-weight: bold;
+		/* #ifdef H5 */
+		text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.2);
+		/* #endif */
+	}
+
+	.api-path {
+		font-size: 30rpx;
+		color: #333;
+		font-family: monospace;
+		word-break: break-all;
+	}
+
+	.method-tags {
+		margin-top: 20rpx;
+		display: flex;
+		/* #ifdef APP-PLUS-NVUE */
+		flex-direction: row;
+		/* #endif */
+		/* #ifdef H5 */
+		gap: 15rpx;
+		/* #endif */
+	}
+
+	.method {
+		font-size: 24rpx;
+		padding: 8rpx 20rpx;
+		border-radius: 6rpx;
+		font-weight: bold;
+		/* #ifdef APP-PLUS-NVUE */
+		margin-right: 15rpx;
+		/* #endif */
+	}
+
+	.get {
+		background: #e6ffed;
+		color: #389e0d;
+	}
+
+	.post {
+		background: #e6f7ff;
+		color: #096dd9;
+	}
+
+	.put {
+		background: #fff7e6;
+		color: #d48806;
+	}
+
+	.delete {
+		background: #fff1f0;
+		color: #cf1322;
+	}
+
+	.status-indicator {
+		font-size: 24rpx;
+		margin-left: 15rpx;
+		background: rgba(255, 255, 255, 0.2);
+		padding: 4rpx 12rpx;
+		border-radius: 20rpx;
+	}
+</style>

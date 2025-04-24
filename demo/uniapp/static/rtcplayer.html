@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<title>RTP Stream Player</title>
+	</head>
+	<body>
+		<video id="videoElement" controls autoplay></video>
+		<audio id="audioElement" controls autoplay></audio>
+		<script>
+			// SDP信息
+			const sdpData =
+				'v=0\r\no=- 0 0 IN IP4 192.168.1.3\r\ns=RTP Session\r\nc=IN IP4 192.168.1.4\r\nt=0 0\r\na=control:*\r\nm=video 12000 RTP/AVP 103\r\na=rtpmap:103 H264/90000\r\nm=audio 12010 RTP/AVP 106\r\na=rtpmap:106 MP4A-LATM/48000\r\n';
+
+
+
+			// 创建RTCPeerConnection
+			const pc = new RTCPeerConnection();
+
+			// 设置远端描述
+			const sdp = 'v=0\r\no=- 0 0 IN IP4 192.168.1.3\r\ns=RTP Session\r\nc=IN IP4 192.168.1.4\r\nt=0 0\r\nm=video 12000 RTP/AVP 103\r\na=rtpmap:103 H264/90000\r\nm=audio 12010 RTP/AVP 106\r\na=rtpmap:106 MP4A-LATM/48000\r\n';
+			pc.setRemoteDescription(new RTCSessionDescription({type: 'offer', sdp: sdpData}))
+			  .then(() => {
+			    console.log('Remote description set successfully.');
+			    return pc.createAnswer();
+			  })
+			  .then(answer => {
+			    return pc.setLocalDescription(answer);
+			  })
+			  .then(() => {
+			    console.log('Local description set successfully.');
+			  })
+			  .catch(error => {
+			    console.error('Error setting description:', error);
+			  });
+			
+			// 添加轨道到媒体元素
+			pc.ontrack = (event) => {
+			  document.getElementById('videoElement').srcObject = event.streams[0];
+			};
+		</script>
+	</body>
+</html>

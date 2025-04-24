@@ -1,0 +1,359 @@
+<template>
+	<view class="container">
+		<refresh class="refresh" @refresh="onRefresh" @pullingdown="onPullingDown"
+			:display="refreshing ? 'show' : 'hide'">
+			<text class="refresh-text">{{ refreshText }}</text>
+		</refresh>
+
+		<view class="image-container">
+			<image :src="snapshotUrl" class="snapshot-image" v-if="snapshotUrl" />
+			<view class="loading-placeholder" v-else>
+				<text class="loading-text">等待快照...</text>
+			</view>
+		</view>
+
+		<view class="controls">
+			<view class="btn-group">
+				<button class="action-btn refresh-btn" @click="fetchSnapshot">
+					<text class="btn-text">获取高清快照</text>
+				</button>
+				<button class="action-btn save-btn" @click="saveSnapshot" :disabled="!snapshotUrl">
+					<text class="btn-text">保存到相册</text>
+				</button>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script>
+	export default {
+		data() {
+			return {
+				snapshotUrl: '',
+				timer: null,
+				refreshing: false,
+				refreshText: '下拉刷新快照'
+			};
+		},
+		onLoad() {
+			this.fetchSnapshot();
+			// this.timer = setInterval(this.fetchSnapshot, 5000);
+		},
+		onUnload() {
+			clearInterval(this.timer);
+		},
+		onPullDownRefresh(e) {
+			console.log(e)
+			// 根据下拉距离修改提示文字
+			// if (e.pullingDistance > 50) {
+			// 	this.refreshText = '松开立即刷新';
+			// } else {
+			// 	this.refreshText = '下拉刷新快照';
+			// }
+
+			this.refreshing = true;
+			this.refreshText = '正在刷新...';
+
+			// 获取新快照
+			this.fetchSnapshot(() => {
+				// 完成刷新
+				setTimeout(() => {
+					this.refreshing = false;
+					this.refreshText = '下拉刷新快照';
+					uni.stopPullDownRefresh();
+				}, 500);
+			});
+		},
+		methods: {
+			// 保存快照到相册
+			saveSnapshot() {
+				if (!this.snapshotUrl) {
+					uni.showToast({
+						title: '请先获取快照',
+						icon: 'none'
+					});
+					return;
+				}
+				
+				uni.showLoading({
+					title: '正在保存...'
+				});
+				
+				// 将Base64图片转为临时文件
+				const base64Data = this.snapshotUrl.split(',')[1];
+				
+				// 直接使用base64保存到相册（跨平台兼容）
+				// #ifdef APP-PLUS
+				const bitmap = new plus.nativeObj.Bitmap('snapshot');
+				// 将base64编码图片绘制到Bitmap对象中
+				bitmap.loadBase64Data(this.snapshotUrl, () => {
+					// 保存图片
+					bitmap.save(`_doc/snapshot_${Date.now()}.jpg`, {
+						overwrite: true,
+						quality: 100
+					}, (savedPath) => {
+						// 保存到相册
+						plus.gallery.save(savedPath, () => {
+							uni.hideLoading();
+							uni.showToast({
+								title: '保存成功',
+								icon: 'success'
+							});
+							// 释放内存
+							bitmap.clear();
+						}, (err) => {
+							uni.hideLoading();
+							console.error('保存失败:', err);
+							
+							// 处理权限问题
+							if (err.code && err.code === 8) {
+								uni.showModal({
+									title: '提示',
+									content: '需要相册权限才能保存图片，是否前往设置？',
+									success: (res) => {
+										if (res.confirm) {
+											// 打开设置页面让用户授权
+											if (plus.os.name.toLowerCase() === 'android') {
+												// 安卓平台
+												plus.runtime.openURL('app-settings:');
+											} else {
+												// iOS平台
+												plus.runtime.openURL('app-settings:');
+											}
+										}
+									}
+								});
+							} else {
+								uni.showToast({
+									title: '保存失败，请检查权限',
+									icon: 'none'
+								});
+							}
+							
+							// 释放内存
+							bitmap.clear();
+						});
+					}, (err) => {
+						uni.hideLoading();
+						console.error('图片保存失败:', err);
+						uni.showToast({
+							title: '图片保存失败',
+							icon: 'none'
+						});
+						// 释放内存
+						bitmap.clear();
+					});
+				}, (err) => {
+					uni.hideLoading();
+					console.error('图片加载失败:', err);
+					uni.showToast({
+						title: '图片加载失败',
+						icon: 'none'
+					});
+				});
+				// #endif
+				
+				// #ifdef H5
+				// H5端实现
+				const a = document.createElement('a');
+				a.href = this.snapshotUrl;
+				a.download = `snapshot_${Date.now()}.jpg`;
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				uni.hideLoading();
+				uni.showToast({
+					title: '图片已下载',
+					icon: 'success'
+				});
+				// #endif
+			},
+
+			fetchSnapshot(callback) {
+				const app = getApp();
+				const cameraData = app.globalData.cameraData;
+				const cameraIP = cameraData.ip;
+				const cameraPort = cameraData.port;
+
+				// 如果不是下拉刷新，则显示加载提示
+				if (!this.refreshing) {
+					uni.showLoading({
+						title: '获取快照中...'
+					});
+				}
+
+				this.fetchHighResSnapshot(cameraIP, cameraPort, callback);
+			},
+			fetchHighResSnapshot(cameraIP, cameraPort, callback) {
+				// console.log("开始请求。。。")
+				uni.request({
+					url: `http://${cameraIP}:${cameraPort}/ccapi/ver100/shooting/liveview/flip`,
+					method: 'GET',
+					responseType: 'arraybuffer', // 获取二进制数据
+					success: (res) => {
+						// console.log("请求完毕。。。")
+						if (res.statusCode === 200) {
+							// 将二进制数据转换为Base64
+							const base64 = uni.arrayBufferToBase64(res.data);
+							// 构建图片URL
+							this.snapshotUrl = `data:image/jpeg;base64,${base64}`;
+							// 如果不是下拉刷新，则隐藏加载提示
+							if (!this.refreshing) {
+								uni.hideLoading();
+							}
+
+							// 执行回调函数（如果有）
+							if (typeof callback === 'function') {
+								callback();
+							}
+						} else {
+							// 如果不是下拉刷新，则隐藏加载提示
+							if (!this.refreshing) {
+								uni.hideLoading();
+							}
+
+							uni.showToast({
+								title: `获取失败: ${res.statusCode}`,
+								icon: 'none'
+							});
+
+							// 执行回调函数（如果有）
+							if (typeof callback === 'function') {
+								callback();
+							}
+						}
+
+					},
+					fail: (err) => {
+						// 如果不是下拉刷新，则隐藏加载提示
+						if (!this.refreshing) {
+							uni.hideLoading();
+						}
+
+						uni.showToast({
+							title: '获取快照失败: ' + (err.errMsg || '未知错误'),
+							icon: 'none',
+							duration: 2000
+						});
+
+						// 执行回调函数（如果有）
+						if (typeof callback === 'function') {
+							callback();
+						}
+					}
+				});
+			}
+		}
+	};
+</script>
+
+<style scoped>
+	.container {
+		flex: 1;
+		flex-direction: column;
+		background-color: #000;
+		/* 移除center对齐，让图片容器能够完全扩展 */
+	}
+
+	.refresh {
+		height: 80rpx;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.refresh-text {
+		font-size: 28rpx;
+		color: #FFFFFF;
+		text-align: center;
+	}
+
+	.image-container {
+		/* #ifdef APP-PLUS-NVUE */
+		flex: 1;
+		/* #endif */
+		/* #ifdef H5 */
+		height: calc(100vh - 180rpx);
+		width: 100%;
+		/* #endif */
+	}
+
+	.snapshot-image {
+		/* #ifdef APP-PLUS-NVUE */
+		flex: 1;
+		width: 750rpx;
+		height: 100%;
+		resize-mode: contain;
+		/* 保持宽高比 */
+		/* #endif */
+		/* #ifdef H5 */
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		/* #endif */
+	}
+
+	.loading-placeholder {
+		/* #ifdef APP-PLUS-NVUE */
+		flex: 1;
+		/* #endif */
+		/* #ifdef H5 */
+		height: calc(100vh - 180rpx);
+		/* #endif */
+		justify-content: center;
+		align-items: center;
+	}
+
+	.loading-text {
+		color: #FFF;
+		font-size: 32rpx;
+		opacity: 0.6;
+	}
+
+	.controls {
+		padding: 20rpx 0;
+		align-items: center;
+	}
+
+	.btn-group {
+		display: flex;
+		flex-direction: row;
+		/* #ifdef H5 */
+		gap: 20rpx;
+		/* #endif */
+	}
+
+	.action-btn {
+		/* background: linear-gradient(to right, #4B9CFA, #58C8FC); */
+		/* #ifdef APP-PLUS-NVUE */
+		width: 240rpx;
+		height: 90rpx;
+		justify-content: center;
+		align-items: center;
+		border-radius: 45rpx;
+		margin: 0 15rpx;
+		/* #endif */
+		/* #ifdef H5 */
+		padding: 20rpx 40rpx;
+		border-radius: 45rpx;
+		/* #endif */
+		color: white;
+	}
+
+	.btn-text {
+		color: #000;
+		font-size: 32rpx;
+		font-weight: 500;
+		/* #ifdef H5 */
+		text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.2);
+		/* #endif */
+	}
+
+	.save-btn {
+		/* background: linear-gradient(to right, #49C061, #36AD4E); */
+	}
+	
+	.save-btn[disabled] {
+		/* background: linear-gradient(to right, #A0A0A0, #808080); */
+		opacity: 0.7;
+	}
+</style>
