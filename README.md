@@ -11,7 +11,7 @@ paper to elecrtonic
 ### 一、取像
 
 在取像阶段，我计划用佳能相机和佳能软件开发包的CCAPI来进行拍照并取得照片。
-佳能软件开发包申请地址：[[https://www.canon.com.cn/supports/sdk/icp/]]
+佳能软件开发包申请地址：[https://www.canon.com.cn/supports/sdk/icp/](https://www.canon.com.cn/supports/sdk/icp/)
 ### 二、处理
 将第一步取得图像，进行归类以及处理。（待续）
 
